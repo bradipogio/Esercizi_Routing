@@ -7,6 +7,7 @@ const challengeSummary = document.getElementById("challenge-summary");
 const statusBox = document.getElementById("status-box");
 const connectionList = document.getElementById("connection-list");
 const tutorialCard = document.getElementById("tutorial-card");
+const tutorialOverlay = document.getElementById("tutorial-overlay");
 const newSetupButton = document.getElementById("new-setup");
 const resetWiringButton = document.getElementById("reset-wiring");
 const startTutorialButton = document.getElementById("start-tutorial");
@@ -95,40 +96,52 @@ const TUTORIAL_STEPS = [
     },
   },
   {
-    title: "Prima cassa dal MAIN OUT L",
+    title: "Prima cassa dai MAIN OUT",
     reason:
-      "Le casse devono ricevere il mix finale del mixer, quindi le prime due connessioni partono dai MAIN OUT. Qui usi il canale sinistro per alimentare una prima cassa direttamente dal mixer.",
+      "Le casse devono ricevere il mix finale del mixer, quindi le prime due connessioni possono partire direttamente dai MAIN OUT del mixer. Qui scegli liberamente una delle due uscite principali.",
     instruction:
-      "Collega MAIN OUT L del mixer a uno degli ingressi IN di Speaker 1.",
-    devices: ["mixer-1", "speaker-1"],
-    ports: ["mixer-main-l", "speaker-1-in-1", "speaker-1-in-2"],
-    success: "Giusto. Speaker 1 riceve il segnale direttamente da MAIN OUT L.",
+      "Collega MAIN OUT L oppure MAIN OUT R del mixer a uno degli ingressi IN di Speaker 1 oppure Speaker 2.",
+    devices: ["mixer-1", "speaker-1", "speaker-2"],
+    ports: [
+      "mixer-main-l",
+      "mixer-main-r",
+      "speaker-1-in-1",
+      "speaker-1-in-2",
+      "speaker-2-in-1",
+      "speaker-2-in-2",
+    ],
+    success: "Giusto. Hai collegato la prima cassa direttamente a uno dei MAIN OUT.",
     redirect:
-      "In questo step usa MAIN OUT L del mixer e uno degli ingressi di Speaker 1.",
+      "In questo step usa uno dei due MAIN OUT del mixer e uno degli ingressi di Speaker 1 o Speaker 2.",
     matches(normalized) {
       return (
         normalized &&
-        normalized.fromPort.id === "mixer-main-l" &&
-        normalized.toPort.deviceId === "speaker-1"
+        normalized.fromPort.deviceId === "mixer-1" &&
+        normalized.fromPort.jackType === "main_out" &&
+        (normalized.toPort.deviceId === "speaker-1" || normalized.toPort.deviceId === "speaker-2")
       );
     },
   },
   {
-    title: "Seconda cassa dal MAIN OUT R",
+    title: "Seconda cassa dal MAIN OUT rimasto",
     reason:
-      "Il mixer ha due uscite principali, sinistra e destra. Quando hai più casse, puoi usarle entrambe per portare il mix direttamente a due speaker prima di continuare eventualmente in cascata.",
-    instruction:
-      "Collega MAIN OUT R del mixer a uno degli ingressi IN di Speaker 2.",
-    devices: ["mixer-1", "speaker-2"],
-    ports: ["mixer-main-r", "speaker-2-in-1", "speaker-2-in-2"],
+      "Quando hai una seconda cassa disponibile, puoi usare anche l'altro MAIN OUT rimasto libero. Così sfrutti entrambe le uscite principali prima di andare eventualmente in cascata.",
+    instruction: null,
+    devices: null,
+    ports: null,
     success: "Bene. Ora hai due speaker collegati direttamente ai due MAIN OUT del mixer.",
-    redirect:
-      "In questo step usa MAIN OUT R del mixer e uno degli ingressi di Speaker 2.",
+    redirect: null,
     matches(normalized) {
-      return (
+      const directState = getTutorialDirectSpeakerState();
+      const remainingMainOut = directState.availableMainOuts[0];
+      const remainingSpeaker = directState.availableSpeakers[0];
+
+      return Boolean(
         normalized &&
-        normalized.fromPort.id === "mixer-main-r" &&
-        normalized.toPort.deviceId === "speaker-2"
+          remainingMainOut &&
+          remainingSpeaker &&
+          normalized.fromPort.id === remainingMainOut &&
+          normalized.toPort.deviceId === remainingSpeaker
       );
     },
   },
@@ -181,12 +194,12 @@ const state = {
     stepIndex: 0,
     feedback: "",
     feedbackTone: "info",
+    overlayOpen: false,
   },
 };
 
 let connectionWireGroup = null;
 let previewWirePath = null;
-let tutorialReturnTimer = null;
 
 const STAGE_MARGIN = 26;
 const ROUTE_PADDING = 34;
@@ -307,20 +320,78 @@ function setTutorialFeedback(text = "", tone = "info") {
   state.tutorial.feedbackTone = tone;
 }
 
-function clearTutorialReturnTimer() {
-  if (!tutorialReturnTimer) {
-    return;
+function getTutorialDirectSpeakerState() {
+  const usedMainOuts = [];
+  const directSpeakers = [];
+
+  state.connections.forEach((connection) => {
+    const normalized = normalizeConnection(connection);
+    if (
+      !normalized ||
+      normalized.fromPort.deviceId !== "mixer-1" ||
+      normalized.fromPort.jackType !== "main_out" ||
+      !["speaker-1", "speaker-2"].includes(normalized.toPort.deviceId)
+    ) {
+      return;
+    }
+
+    usedMainOuts.push(normalized.fromPort.id);
+    directSpeakers.push(normalized.toPort.deviceId);
+  });
+
+  return {
+    usedMainOuts,
+    directSpeakers,
+    availableMainOuts: ["mixer-main-l", "mixer-main-r"].filter((portId) => !usedMainOuts.includes(portId)),
+    availableSpeakers: ["speaker-1", "speaker-2"].filter(
+      (deviceId) => !directSpeakers.includes(deviceId)
+    ),
+  };
+}
+
+function resolveTutorialStepContent(step = tutorialStep()) {
+  if (!step) {
+    return null;
   }
 
-  window.clearTimeout(tutorialReturnTimer);
-  tutorialReturnTimer = null;
+  if (step.title !== "Seconda cassa dal MAIN OUT rimasto") {
+    return {
+      title: step.title,
+      reason: step.reason,
+      instruction: step.instruction,
+      devices: step.devices,
+      ports: step.ports,
+      success: step.success,
+      redirect: step.redirect,
+    };
+  }
+
+  const directState = getTutorialDirectSpeakerState();
+  const remainingMainOut = directState.availableMainOuts[0] || "mixer-main-r";
+  const remainingSpeaker = directState.availableSpeakers[0] || "speaker-2";
+  const mainOutLabel = remainingMainOut === "mixer-main-l" ? "MAIN OUT L" : "MAIN OUT R";
+  const speakerLabel = remainingSpeaker === "speaker-1" ? "Speaker 1" : "Speaker 2";
+
+  return {
+    title: step.title,
+    reason: step.reason,
+    instruction: `Collega ${mainOutLabel} del mixer a uno degli ingressi IN di ${speakerLabel}.`,
+    devices: ["mixer-1", remainingSpeaker],
+    ports: [
+      remainingMainOut,
+      `${remainingSpeaker}-in-1`,
+      `${remainingSpeaker}-in-2`,
+    ],
+    success: step.success,
+    redirect: `In questo step usa ${mainOutLabel} del mixer e uno degli ingressi di ${speakerLabel}.`,
+  };
 }
 
 function startTutorial() {
-  clearTutorialReturnTimer();
   state.tutorial.active = true;
   state.tutorial.stepIndex = 0;
   setTutorialFeedback("", "info");
+  state.tutorial.overlayOpen = true;
   state.challenge = {
     micCount: 1,
     tabletCount: 1,
@@ -334,10 +405,10 @@ function startTutorial() {
 }
 
 function finishTutorial() {
-  clearTutorialReturnTimer();
   state.tutorial.active = false;
   state.tutorial.stepIndex = 0;
   setTutorialFeedback("", "info");
+  state.tutorial.overlayOpen = false;
   state.connections = [];
   state.selectedPortId = null;
   state.previewPoint = null;
@@ -377,12 +448,12 @@ function tutorialDevicePosition(type, index) {
 }
 
 function tutorialPortFocus(portId) {
-  const step = tutorialStep();
+  const step = resolveTutorialStepContent();
   return Boolean(state.tutorial.active && step && step.ports.includes(portId));
 }
 
 function tutorialDeviceFocus(deviceId) {
-  const step = tutorialStep();
+  const step = resolveTutorialStepContent();
   return Boolean(state.tutorial.active && step && step.devices.includes(deviceId));
 }
 
@@ -399,26 +470,13 @@ function processTutorialConnection(connection) {
   const normalized = normalizeConnection(connection);
   if (!step.matches(normalized)) {
     state.connections.pop();
-    setTutorialFeedback(step.redirect, "error");
+    setTutorialFeedback(resolveTutorialStepContent(step).redirect, "error");
     return;
   }
 
   state.tutorial.stepIndex += 1;
-  setTutorialFeedback(
-    state.tutorial.stepIndex >= TUTORIAL_STEPS.length
-      ? "Tutorial completato. Tra un attimo torni allo scenario libero."
-      : step.success,
-    "success"
-  );
-
-  if (state.tutorial.stepIndex >= TUTORIAL_STEPS.length) {
-    clearTutorialReturnTimer();
-    tutorialReturnTimer = window.setTimeout(() => {
-      if (state.tutorial.active && !tutorialStep()) {
-        finishTutorial();
-      }
-    }, 2200);
-  }
+  state.tutorial.overlayOpen = true;
+  setTutorialFeedback(resolveTutorialStepContent(step).success, "success");
 }
 
 function renderTutorial() {
@@ -432,14 +490,14 @@ function renderTutorial() {
   tutorialCard.hidden = false;
 
   const step = tutorialStep();
+  const content = resolveTutorialStepContent(step);
   if (!step) {
     tutorialCard.innerHTML = `
       <p class="tutorial-kicker">Tutorial completato</p>
       <h2>Flusso base chiuso</h2>
       <p class="tutorial-copy">
-        Hai collegato microfono, tablet e speaker nel modo corretto. Tra poco torni allo scenario libero, ma puoi anche uscire subito.
+        Hai collegato microfono, tablet e speaker nel modo corretto. Premi OK nel prompt sul palco per tornare allo scenario libero.
       </p>
-      <div class="tutorial-feedback" data-tone="${state.tutorial.feedbackTone}">${state.tutorial.feedback}</div>
       <div class="tutorial-actions">
         <button id="finish-tutorial" class="button button-primary">Torna alla schermata iniziale</button>
       </div>
@@ -450,9 +508,9 @@ function renderTutorial() {
 
   tutorialCard.innerHTML = `
     <p class="tutorial-kicker">Tutorial ${state.tutorial.stepIndex + 1} / ${TUTORIAL_STEPS.length}</p>
-    <h2>${step.title}</h2>
-    <p class="tutorial-copy">${step.reason}</p>
-    <div class="tutorial-instruction"><strong>Adesso fai questo:</strong> ${step.instruction}</div>
+    <h2>${content.title}</h2>
+    <p class="tutorial-copy">${content.reason}</p>
+    <div class="tutorial-instruction"><strong>Adesso fai questo:</strong> ${content.instruction}</div>
     ${
       state.tutorial.feedback
         ? `<div class="tutorial-feedback" data-tone="${state.tutorial.feedbackTone}">${state.tutorial.feedback}</div>`
@@ -464,6 +522,56 @@ function renderTutorial() {
   `;
 
   document.getElementById("exit-tutorial")?.addEventListener("click", finishTutorial);
+}
+
+function renderTutorialOverlay() {
+  if (!state.tutorial.active || !state.tutorial.overlayOpen) {
+    tutorialOverlay.hidden = true;
+    tutorialOverlay.innerHTML = "";
+    return;
+  }
+
+  tutorialOverlay.hidden = false;
+  const step = tutorialStep();
+
+  if (!step) {
+    tutorialOverlay.innerHTML = `
+      <div class="tutorial-overlay-card">
+        <p class="tutorial-kicker">Tutorial completato</p>
+        <h3>Ora puoi provare da solo</h3>
+        <p class="tutorial-overlay-copy">
+          Hai visto il flusso base: microfono sugli XLR, tablet su una coppia stereo, due speaker dai MAIN OUT e il terzo in cascata.
+        </p>
+        <div class="tutorial-overlay-action">
+          Premi OK per tornare alla schermata iniziale e iniziare uno scenario libero.
+        </div>
+        <div class="tutorial-actions">
+          <button id="tutorial-overlay-ok" class="button button-primary">OK</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("tutorial-overlay-ok")?.addEventListener("click", finishTutorial);
+    return;
+  }
+
+  const content = resolveTutorialStepContent(step);
+  tutorialOverlay.innerHTML = `
+    <div class="tutorial-overlay-card">
+      <p class="tutorial-kicker">Passo ${state.tutorial.stepIndex + 1} di ${TUTORIAL_STEPS.length}</p>
+      <h3>${content.title}</h3>
+      <p class="tutorial-overlay-copy">${content.reason}</p>
+      <div class="tutorial-overlay-action">
+        <strong>Adesso fai questo:</strong> ${content.instruction}
+      </div>
+      <div class="tutorial-actions">
+        <button id="tutorial-overlay-ok" class="button button-primary">OK</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("tutorial-overlay-ok")?.addEventListener("click", () => {
+    state.tutorial.overlayOpen = false;
+    renderTutorialOverlay();
+  });
 }
 
 function createChallenge() {
@@ -792,7 +900,11 @@ function handlePortClick(portId) {
   }
 
   if (state.tutorial.active) {
-    const step = tutorialStep();
+    if (state.tutorial.overlayOpen) {
+      return;
+    }
+
+    const step = resolveTutorialStepContent();
     const lockedPorts = tutorialLockedPorts();
 
     if (lockedPorts.has(portId)) {
@@ -1035,7 +1147,7 @@ function buildStatusMarkup(validation) {
       : {
           state: "success",
           title: "Tutorial completato",
-          text: "Hai chiuso il percorso base. Usa il pulsante del tutorial per tornare allo scenario libero.",
+          text: "Hai chiuso il percorso base. Premi OK nel prompt sopra il palco per tornare allo scenario libero.",
           showNext: false,
         };
   }
@@ -1966,6 +2078,7 @@ function validateAndRender() {
   state.validation = validateConnections();
   renderSummary();
   renderTutorial();
+  renderTutorialOverlay();
   renderStatus();
   renderConnectionList();
   renderDevices();

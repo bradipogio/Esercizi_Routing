@@ -399,6 +399,51 @@ h1 {
   transform: scale(var(--stage-scale));
 }
 
+.tutorial-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(22, 28, 24, 0.18);
+  backdrop-filter: blur(3px);
+  z-index: 5;
+}
+
+.tutorial-overlay[hidden] {
+  display: none;
+}
+
+.tutorial-overlay-card {
+  width: min(520px, calc(100% - 20px));
+  padding: 22px 24px;
+  border-radius: 24px;
+  border: 1px solid rgba(47, 109, 178, 0.2);
+  background: linear-gradient(145deg, rgba(255, 251, 244, 0.98), rgba(241, 247, 255, 0.94));
+  box-shadow: 0 28px 48px rgba(31, 42, 31, 0.18);
+}
+
+.tutorial-overlay-card h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  letter-spacing: -0.03em;
+}
+
+.tutorial-overlay-copy {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.tutorial-overlay-action {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(59, 45, 32, 0.08);
+}
+
 .wire-layer,
 .device-layer {
   position: absolute;
