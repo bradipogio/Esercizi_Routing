@@ -1,6 +1,8 @@
 const stage = document.getElementById("stage");
+const stageFrame = document.getElementById("stage-frame");
 const deviceLayer = document.getElementById("device-layer");
 const wireLayer = document.getElementById("wire-layer");
+const stageScroll = document.querySelector(".stage-scroll");
 const challengeSummary = document.getElementById("challenge-summary");
 const statusBox = document.getElementById("status-box");
 const connectionList = document.getElementById("connection-list");
@@ -37,6 +39,7 @@ const state = {
     occupiedSegments: [],
   },
   previewFrame: null,
+  stageScale: 1,
 };
 
 let connectionWireGroup = null;
@@ -192,6 +195,8 @@ function buildDevices() {
   wireLayer.setAttribute("viewBox", `0 0 ${stageWidth} ${stageHeight}`);
   wireLayer.setAttribute("width", String(stageWidth));
   wireLayer.setAttribute("height", String(stageHeight));
+  stageFrame.style.setProperty("--stage-width", `${stageWidth}px`);
+  stageFrame.style.setProperty("--stage-height", `${stageHeight}px`);
 
   const devices = [];
   const portMap = new Map();
@@ -343,6 +348,32 @@ function buildDevices() {
 
   state.devices = devices;
   state.ports = portMap;
+  applyStageScale();
+}
+
+function computeStageScale() {
+  if (!stageScroll || window.innerWidth <= 760) {
+    return 1;
+  }
+
+  const availableWidth = Math.max(0, stageScroll.clientWidth - 2);
+  if (!availableWidth) {
+    return 1;
+  }
+
+  return clamp(availableWidth / state.stageSize.width, 0.74, 1);
+}
+
+function applyStageScale() {
+  if (!stageFrame || !state.stageSize.width || !state.stageSize.height) {
+    return;
+  }
+
+  const stageScale = computeStageScale();
+  state.stageScale = stageScale;
+  stageFrame.style.setProperty("--stage-scale", String(stageScale));
+  stageFrame.style.width = `${Math.round(state.stageSize.width * stageScale)}px`;
+  stageFrame.style.height = `${Math.round(state.stageSize.height * stageScale)}px`;
 }
 
 function portMeta(portId) {
@@ -1570,9 +1601,11 @@ function updatePreviewPoint(event) {
   }
 
   const stageRect = stage.getBoundingClientRect();
+  const scaleX = stageRect.width / state.stageSize.width || state.stageScale || 1;
+  const scaleY = stageRect.height / state.stageSize.height || state.stageScale || 1;
   state.previewPoint = {
-    x: event.clientX - stageRect.left,
-    y: event.clientY - stageRect.top,
+    x: clampToStage((event.clientX - stageRect.left) / scaleX, "x"),
+    y: clampToStage((event.clientY - stageRect.top) / scaleY, "y"),
   };
   schedulePreviewRender();
 }
@@ -1605,7 +1638,10 @@ stage.addEventListener("click", (event) => {
 });
 
 window.addEventListener("resize", () => {
-  requestAnimationFrame(drawConnections);
+  requestAnimationFrame(() => {
+    applyStageScale();
+    drawConnections();
+  });
 });
 
 createChallenge();
