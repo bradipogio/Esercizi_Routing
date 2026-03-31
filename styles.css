@@ -284,6 +284,40 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.selection-bar {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 109, 178, 0.2);
+  background: linear-gradient(145deg, rgba(255, 250, 240, 0.96), rgba(241, 247, 255, 0.92));
+  box-shadow: 0 14px 28px rgba(31, 42, 31, 0.1);
+}
+
+.selection-bar[hidden] {
+  display: none;
+}
+
+.selection-bar-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+.selection-bar-copy {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.selection-bar-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
 .tutorial-card {
   margin-bottom: 14px;
   padding: 18px 20px;
@@ -366,6 +400,9 @@ h1 {
 .stage-scroll {
   overflow: auto;
   padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
 }
 
 .stage-frame {
@@ -824,15 +861,79 @@ h1 {
     border-radius: 24px;
   }
 
+  .eyebrow {
+    font-size: 0.74rem;
+  }
+
+  h1 {
+    font-size: clamp(1.65rem, 7.6vw, 2.3rem);
+  }
+
+  .intro {
+    font-size: 0.93rem;
+    line-height: 1.45;
+  }
+
+  .hero-actions {
+    gap: 10px;
+  }
+
+  .button {
+    width: 100%;
+    padding: 13px 16px;
+  }
+
   .sidebar {
     grid-template-columns: 1fr;
   }
 
-  .stage-frame {
-    min-width: 1120px;
+  .panel,
+  .legend,
+  .tutorial-card,
+  .selection-bar {
+    border-radius: 18px;
   }
 
-  .stage {
-    transform: none;
+  .summary-chip,
+  .connection-item,
+  .empty-state {
+    padding: 11px 12px;
+  }
+
+  .selection-bar {
+    position: sticky;
+    bottom: 10px;
+    z-index: 4;
+    margin-top: 12px;
+  }
+
+  .selection-bar-title {
+    font-size: 0.72rem;
+  }
+
+  .selection-bar-copy {
+    font-size: 0.93rem;
+  }
+
+  .tutorial-overlay {
+    padding: 16px;
+  }
+
+  .tutorial-overlay-card {
+    width: 100%;
+    padding: 18px 18px 16px;
+    border-radius: 20px;
+  }
+
+  .device-title {
+    font-size: 0.92rem;
+  }
+
+  .port-label {
+    font-size: 0.68rem;
+  }
+
+  .wire-hitbox {
+    stroke-width: 26;
   }
 }

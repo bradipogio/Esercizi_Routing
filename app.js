@@ -6,6 +6,7 @@ const stageScroll = document.querySelector(".stage-scroll");
 const challengeSummary = document.getElementById("challenge-summary");
 const statusBox = document.getElementById("status-box");
 const connectionList = document.getElementById("connection-list");
+const selectionBar = document.getElementById("selection-bar");
 const tutorialCard = document.getElementById("tutorial-card");
 const tutorialOverlay = document.getElementById("tutorial-overlay");
 const newSetupButton = document.getElementById("new-setup");
@@ -131,17 +132,12 @@ const TUTORIAL_STEPS = [
     ports: null,
     success: "Bene. Ora hai due speaker collegati direttamente ai due MAIN OUT del mixer.",
     redirect: null,
-    matches(normalized) {
-      const directState = getTutorialDirectSpeakerState(state.connections.slice(0, -1));
-      const remainingMainOut = directState.availableMainOuts[0];
-      const remainingSpeaker = directState.availableSpeakers[0];
-
+    matches(normalized, context) {
       return Boolean(
         normalized &&
-          remainingMainOut &&
-          remainingSpeaker &&
-          normalized.fromPort.id === remainingMainOut &&
-          normalized.toPort.deviceId === remainingSpeaker
+          context &&
+          context.ports.includes(normalized.fromPort.id) &&
+          context.ports.includes(normalized.toPort.id)
       );
     },
   },
@@ -315,6 +311,10 @@ function tutorialStep() {
   return TUTORIAL_STEPS[state.tutorial.stepIndex] || null;
 }
 
+function isPhoneViewport() {
+  return window.innerWidth <= 760;
+}
+
 function setTutorialFeedback(text = "", tone = "info") {
   state.tutorial.feedback = text;
   state.tutorial.feedbackTone = tone;
@@ -457,26 +457,25 @@ function tutorialDeviceFocus(deviceId) {
   return Boolean(state.tutorial.active && step && step.devices.includes(deviceId));
 }
 
-function processTutorialConnection(connection) {
+function processTutorialConnection(connection, step, content) {
   if (!state.tutorial.active) {
     return;
   }
 
-  const step = tutorialStep();
   if (!step) {
     return;
   }
 
   const normalized = normalizeConnection(connection);
-  if (!step.matches(normalized)) {
+  if (!step.matches(normalized, content)) {
     state.connections.pop();
-    setTutorialFeedback(resolveTutorialStepContent(step).redirect, "error");
+    setTutorialFeedback(content.redirect, "error");
     return;
   }
 
   state.tutorial.stepIndex += 1;
   state.tutorial.overlayOpen = true;
-  setTutorialFeedback(resolveTutorialStepContent(step).success, "success");
+  setTutorialFeedback(content.success, "success");
 }
 
 function renderTutorial() {
@@ -571,6 +570,7 @@ function renderTutorialOverlay() {
   document.getElementById("tutorial-overlay-ok")?.addEventListener("click", () => {
     state.tutorial.overlayOpen = false;
     renderTutorialOverlay();
+    focusTutorialStepOnPhone(content);
   });
 }
 
@@ -775,7 +775,7 @@ function buildDevices() {
 }
 
 function computeStageScale() {
-  if (!stageScroll || window.innerWidth <= 760) {
+  if (!stageScroll) {
     return 1;
   }
 
@@ -784,7 +784,9 @@ function computeStageScale() {
     return 1;
   }
 
-  return clamp(availableWidth / state.stageSize.width, 0.74, 1);
+  const minScale = isPhoneViewport() ? 0.58 : 0.74;
+  const maxScale = isPhoneViewport() ? 0.82 : 1;
+  return clamp(availableWidth / state.stageSize.width, minScale, maxScale);
 }
 
 function applyStageScale() {
@@ -886,6 +888,104 @@ function describeConnection(connection) {
   return `${describePort(connection.first)} -> ${describePort(connection.second)}`;
 }
 
+function connectionHintForPort(port) {
+  if (!port) {
+    return "";
+  }
+
+  if (port.role === "out") {
+    if (port.deviceType === "mic") {
+      return "Tocca ora un ingresso XLR MIC del mixer.";
+    }
+
+    if (port.deviceType === "tablet") {
+      return "Tocca ora una coppia stereo del mixer.";
+    }
+
+    if (port.deviceType === "mixer" && port.jackType === "main_out") {
+      return "Tocca ora uno degli ingressi IN di uno speaker.";
+    }
+
+    if (port.deviceType === "speaker") {
+      return "Tocca ora l'ingresso IN dello speaker successivo.";
+    }
+  }
+
+  return "Seleziona ora il connettore compatibile con cui chiudere il collegamento.";
+}
+
+function scrollDeviceIntoView(deviceId) {
+  if (!stageScroll || !isPhoneViewport()) {
+    return;
+  }
+
+  const device = getDevice(deviceId);
+  if (!device) {
+    return;
+  }
+
+  const left = clamp(
+    Math.round((device.x + device.width / 2) * state.stageScale - stageScroll.clientWidth / 2),
+    0,
+    Math.max(0, stageScroll.scrollWidth - stageScroll.clientWidth)
+  );
+  const top = clamp(
+    Math.round((device.y + device.height / 2) * state.stageScale - stageScroll.clientHeight / 2),
+    0,
+    Math.max(0, stageScroll.scrollHeight - stageScroll.clientHeight)
+  );
+
+  stageScroll.scrollTo({
+    left,
+    top,
+    behavior: "smooth",
+  });
+}
+
+function renderSelectionBar() {
+  if (!state.selectedPortId) {
+    selectionBar.hidden = true;
+    selectionBar.innerHTML = "";
+    return;
+  }
+
+  const port = portMeta(state.selectedPortId);
+  if (!port) {
+    selectionBar.hidden = true;
+    selectionBar.innerHTML = "";
+    return;
+  }
+
+  selectionBar.hidden = false;
+  selectionBar.innerHTML = `
+    <div class="selection-bar-title">Porta selezionata</div>
+    <div class="selection-bar-copy">
+      <strong>${describePort(state.selectedPortId)}</strong><br />
+      ${connectionHintForPort(port)}
+    </div>
+    <div class="selection-bar-actions">
+      <button id="selection-bar-clear" class="button button-quiet">Annulla</button>
+    </div>
+  `;
+
+  document.getElementById("selection-bar-clear")?.addEventListener("click", () => {
+    state.selectedPortId = null;
+    state.previewPoint = null;
+    renderSelectionBar();
+    renderDevices();
+    drawConnections();
+  });
+}
+
+function focusTutorialStepOnPhone(content) {
+  if (!content || !content.devices || !isPhoneViewport()) {
+    return;
+  }
+
+  const focusDeviceId = content.devices.find((deviceId) => deviceId !== "mixer-1") || content.devices[0];
+  scrollDeviceIntoView(focusDeviceId);
+}
+
 function removeConnectionByIndex(index) {
   if (state.tutorial.active) {
     return;
@@ -923,6 +1023,8 @@ function handlePortClick(portId) {
   if (!state.selectedPortId) {
     state.selectedPortId = portId;
     state.previewPoint = portCenter(portId);
+    scrollDeviceIntoView(portMeta(portId)?.deviceId);
+    renderSelectionBar();
     renderDevices();
     drawConnections();
     return;
@@ -931,10 +1033,14 @@ function handlePortClick(portId) {
   if (state.selectedPortId === portId) {
     state.selectedPortId = null;
     state.previewPoint = null;
+    renderSelectionBar();
     renderDevices();
     drawConnections();
     return;
   }
+
+  const tutorialStepSnapshot = state.tutorial.active ? tutorialStep() : null;
+  const tutorialContentSnapshot = state.tutorial.active ? resolveTutorialStepContent(tutorialStepSnapshot) : null;
 
   state.connections = state.connections.filter(
     (connection) =>
@@ -950,11 +1056,16 @@ function handlePortClick(portId) {
   });
 
   if (state.tutorial.active) {
-    processTutorialConnection(state.connections[state.connections.length - 1]);
+    processTutorialConnection(
+      state.connections[state.connections.length - 1],
+      tutorialStepSnapshot,
+      tutorialContentSnapshot
+    );
   }
 
   state.selectedPortId = null;
   state.previewPoint = null;
+  renderSelectionBar();
   validateAndRender();
 }
 
@@ -1294,6 +1405,9 @@ function renderDevices() {
     device.ports.forEach((port) => {
       const portButton = document.createElement("button");
       portButton.className = `port ${device.type === "mixer" ? "port-mixer" : ""}`;
+      const isPhone = isPhoneViewport();
+      const portSize = device.type === "mixer" ? (isPhone ? 22 : 14) : isPhone ? 28 : 18;
+      const portHalf = portSize / 2;
       if (state.selectedPortId === port.id) {
         portButton.classList.add("selected");
       }
@@ -1303,8 +1417,10 @@ function renderDevices() {
 
       portButton.dataset.portId = port.id;
       portButton.dataset.role = port.role;
-      portButton.style.left = `${port.x - (device.type === "mixer" ? 7 : 9)}px`;
-      portButton.style.top = `${port.y - (device.type === "mixer" ? 7 : 9)}px`;
+      portButton.style.width = `${portSize}px`;
+      portButton.style.height = `${portSize}px`;
+      portButton.style.left = `${port.x - portHalf}px`;
+      portButton.style.top = `${port.y - portHalf}px`;
       portButton.title = `${device.label} ${port.label}`;
       portButton.setAttribute("aria-label", `${device.label} ${port.label}`);
       portButton.addEventListener("click", (event) => {
@@ -2079,6 +2195,7 @@ function validateAndRender() {
   renderSummary();
   renderTutorial();
   renderTutorialOverlay();
+  renderSelectionBar();
   renderStatus();
   renderConnectionList();
   renderDevices();
@@ -2134,6 +2251,7 @@ stage.addEventListener("click", (event) => {
   }
   state.selectedPortId = null;
   state.previewPoint = null;
+  renderSelectionBar();
   renderDevices();
   drawConnections();
 });
