@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Routing Audio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Simulatore interattivo</p>
+          <h1>Routing Audio</h1>
+          <p class="intro">
+            Configura il sistema collegando microfoni, tablet, mixer e speaker.
+            Seleziona una porta di uscita, poi scegli l'ingresso corretto: il
+            cavo compare subito e la verifica ti segnala eventuali errori.
+          </p>
+        </div>
+
+        <div class="hero-actions">
+          <button id="new-setup" class="button button-primary">
+            Nuovo scenario
+          </button>
+          <button id="reset-wiring" class="button button-secondary">
+            Azzera collegamenti
+          </button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <section class="panel">
+            <h2>Scenario</h2>
+            <div id="challenge-summary" class="summary"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Guida rapida</h2>
+            <ul class="rules">
+              <li>Collega ogni <strong>microfono</strong> a un ingresso <strong>XLR MIC 1-4</strong> del mixer.</li>
+              <li>Collega ogni <strong>tablet</strong> a una coppia stereo del mixer: <strong>5/6, 7/8, 9/10, 11/12</strong>.</li>
+              <li>Le prime casse partono da <strong>MAIN OUT L/R</strong>.</li>
+              <li>Se gli speaker sono più di due, prosegui in catena da <strong>speaker OUT</strong> a uno dei due ingressi <strong>IN</strong> dello speaker successivo.</li>
+            </ul>
+          </section>
+
+          <section class="panel">
+            <h2>Verifica</h2>
+            <div id="status-box" class="status-box"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Collegamenti</h2>
+            <div id="connection-list" class="connection-list"></div>
+          </section>
+        </aside>
+
+        <section class="workspace">
+          <div class="legend">
+            <span><i class="dot dot-neutral"></i> collegamento compatibile</span>
+            <span><i class="dot dot-error"></i> collegamento da correggere</span>
+            <span><i class="dot dot-success"></i> configurazione completata</span>
+          </div>
+
+          <div class="stage-scroll">
+            <div id="stage" class="stage">
+              <svg id="wire-layer" class="wire-layer" aria-hidden="true"></svg>
+              <div id="device-layer" class="device-layer"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
