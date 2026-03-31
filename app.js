@@ -30,6 +30,7 @@ const TUTORIAL_LAYOUT = {
   tablet: [{ x: 1410, y: 118 }],
   speaker: [
     { x: 122, y: 754 },
+    { x: 754, y: 754 },
     { x: 1390, y: 754 },
   ],
 };
@@ -94,41 +95,64 @@ const TUTORIAL_STEPS = [
     },
   },
   {
-    title: "Prima cassa dal MAIN OUT",
+    title: "Prima cassa dal MAIN OUT L",
     reason:
-      "Le casse devono ricevere il mix finale del mixer, quindi la prima connessione parte dai MAIN OUT. Da lì fai uscire il segnale completo verso la prima cassa.",
+      "Le casse devono ricevere il mix finale del mixer, quindi le prime due connessioni partono dai MAIN OUT. Qui usi il canale sinistro per alimentare una prima cassa direttamente dal mixer.",
     instruction:
-      "Collega MAIN OUT L oppure MAIN OUT R del mixer a uno degli ingressi IN di Speaker 1.",
+      "Collega MAIN OUT L del mixer a uno degli ingressi IN di Speaker 1.",
     devices: ["mixer-1", "speaker-1"],
-    ports: ["mixer-main-l", "mixer-main-r", "speaker-1-in-1", "speaker-1-in-2"],
-    success: "Giusto. La prima cassa riceve il segnale direttamente dal mixer.",
+    ports: ["mixer-main-l", "speaker-1-in-1", "speaker-1-in-2"],
+    success: "Giusto. Speaker 1 riceve il segnale direttamente da MAIN OUT L.",
     redirect:
-      "In questo step usa solo MAIN OUT del mixer e uno degli ingressi di Speaker 1.",
+      "In questo step usa MAIN OUT L del mixer e uno degli ingressi di Speaker 1.",
     matches(normalized) {
       return (
         normalized &&
-        normalized.fromPort.deviceId === "mixer-1" &&
-        normalized.fromPort.jackType === "main_out" &&
+        normalized.fromPort.id === "mixer-main-l" &&
         normalized.toPort.deviceId === "speaker-1"
       );
     },
   },
   {
-    title: "Seconda cassa in cascata",
+    title: "Seconda cassa dal MAIN OUT R",
     reason:
-      "Quando hai più speaker puoi proseguire in catena: l'uscita della prima cassa porta avanti il segnale verso la successiva senza tornare al mixer per ogni collegamento.",
+      "Il mixer ha due uscite principali, sinistra e destra. Quando hai più casse, puoi usarle entrambe per portare il mix direttamente a due speaker prima di continuare eventualmente in cascata.",
     instruction:
-      "Collega OUT di Speaker 1 a uno degli ingressi IN di Speaker 2.",
-    devices: ["speaker-1", "speaker-2"],
-    ports: ["speaker-1-out", "speaker-2-in-1", "speaker-2-in-2"],
-    success: "Perfetto. Hai completato il flusso base: microfono, tablet e speaker.",
+      "Collega MAIN OUT R del mixer a uno degli ingressi IN di Speaker 2.",
+    devices: ["mixer-1", "speaker-2"],
+    ports: ["mixer-main-r", "speaker-2-in-1", "speaker-2-in-2"],
+    success: "Bene. Ora hai due speaker collegati direttamente ai due MAIN OUT del mixer.",
     redirect:
-      "Ora lavora solo sulle casse: parti da OUT di Speaker 1 e arriva a un ingresso di Speaker 2.",
+      "In questo step usa MAIN OUT R del mixer e uno degli ingressi di Speaker 2.",
     matches(normalized) {
       return (
         normalized &&
-        normalized.fromPort.id === "speaker-1-out" &&
+        normalized.fromPort.id === "mixer-main-r" &&
         normalized.toPort.deviceId === "speaker-2"
+      );
+    },
+  },
+  {
+    title: "Terza cassa in cascata",
+    reason:
+      "Se gli speaker sono più dei due MAIN OUT disponibili, da lì in poi puoi proseguire in cascata: l'uscita di una cassa porta avanti il segnale verso la successiva.",
+    instruction:
+      "Collega OUT di Speaker 1 oppure OUT di Speaker 2 a uno degli ingressi IN di Speaker 3.",
+    devices: ["speaker-1", "speaker-2", "speaker-3"],
+    ports: [
+      "speaker-1-out",
+      "speaker-2-out",
+      "speaker-3-in-1",
+      "speaker-3-in-2",
+    ],
+    success: "Perfetto. Hai visto sia le uscite MAIN OUT sia la cascata tra speaker.",
+    redirect:
+      "Ora lavora solo sulle casse: parti da OUT di Speaker 1 o Speaker 2 e arriva a un ingresso di Speaker 3.",
+    matches(normalized) {
+      return (
+        normalized &&
+        (normalized.fromPort.id === "speaker-1-out" || normalized.fromPort.id === "speaker-2-out") &&
+        normalized.toPort.deviceId === "speaker-3"
       );
     },
   },
@@ -300,7 +324,7 @@ function startTutorial() {
   state.challenge = {
     micCount: 1,
     tabletCount: 1,
-    speakerCount: 2,
+    speakerCount: 3,
   };
   state.connections = [];
   state.selectedPortId = null;
