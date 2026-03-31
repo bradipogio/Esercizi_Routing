@@ -6,6 +6,7 @@ const statusBox = document.getElementById("status-box");
 const connectionList = document.getElementById("connection-list");
 const newSetupButton = document.getElementById("new-setup");
 const resetWiringButton = document.getElementById("reset-wiring");
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const MIXER_IMAGE_SIZE = {
   width: 1728,
@@ -31,7 +32,15 @@ const state = {
     width: 0,
     height: 0,
   },
+  renderCache: {
+    routeEntries: [],
+    occupiedSegments: [],
+  },
+  previewFrame: null,
 };
+
+let connectionWireGroup = null;
+let previewWirePath = null;
 
 const STAGE_MARGIN = 26;
 const ROUTE_PADDING = 34;
@@ -1411,10 +1420,29 @@ function collectRouteEntries() {
   };
 }
 
-function drawConnections() {
+function ensureWireLayers() {
+  if (connectionWireGroup && previewWirePath) {
+    return;
+  }
+
   wireLayer.innerHTML = "";
+  connectionWireGroup = document.createElementNS(SVG_NS, "g");
+  previewWirePath = document.createElementNS(SVG_NS, "path");
+  previewWirePath.setAttribute("class", "wire wire-preview");
+  previewWirePath.style.display = "none";
+  wireLayer.appendChild(connectionWireGroup);
+  wireLayer.appendChild(previewWirePath);
+}
+
+function renderConnectionLayer() {
+  ensureWireLayers();
+  connectionWireGroup.innerHTML = "";
 
   const { routeEntries, occupiedSegments } = collectRouteEntries();
+  state.renderCache = {
+    routeEntries,
+    occupiedSegments,
+  };
 
   routeEntries.forEach(({ connection, from, to, valid, route }, index) => {
     if (!from || !to || !route) {
@@ -1427,30 +1455,30 @@ function drawConnections() {
     const wireClass = `wire wire-${classifyConnection(connection, state.validation.solved)}`;
 
     if (dimmedPath) {
-      const overlapBasePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const overlapBasePath = document.createElementNS(SVG_NS, "path");
       overlapBasePath.setAttribute("d", dimmedPath);
       overlapBasePath.setAttribute("class", `${wireClass} wire-overlap-base`);
-      wireLayer.appendChild(overlapBasePath);
+      connectionWireGroup.appendChild(overlapBasePath);
     }
 
     if (visiblePath) {
-      const visibleWirePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const visibleWirePath = document.createElementNS(SVG_NS, "path");
       visibleWirePath.setAttribute("d", visiblePath);
       visibleWirePath.setAttribute("class", wireClass);
-      wireLayer.appendChild(visibleWirePath);
+      connectionWireGroup.appendChild(visibleWirePath);
     }
 
     if (valid) {
-      const flowPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const flowPath = document.createElementNS(SVG_NS, "path");
       flowPath.setAttribute(
         "class",
         `wire-flow ${state.validation.solved ? "wire-flow-success" : "wire-flow-neutral"}`
       );
       flowPath.setAttribute("d", dimmedPath || visiblePath || d);
-      wireLayer.appendChild(flowPath);
+      connectionWireGroup.appendChild(flowPath);
     }
 
-    const hitboxPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const hitboxPath = document.createElementNS(SVG_NS, "path");
     hitboxPath.setAttribute("d", d);
     hitboxPath.setAttribute("class", "wire-hitbox");
     hitboxPath.dataset.connectionIndex = String(index);
@@ -1458,25 +1486,51 @@ function drawConnections() {
       event.stopPropagation();
       removeConnectionByIndex(Number(hitboxPath.dataset.connectionIndex));
     });
-    wireLayer.appendChild(hitboxPath);
+    connectionWireGroup.appendChild(hitboxPath);
   });
+}
 
-  if (state.selectedPortId && state.previewPoint) {
-    const start = portCenter(state.selectedPortId);
-    if (start) {
-      const previewRoute = buildOrthogonalRoute(
-        start,
-        state.previewPoint,
-        portMeta(state.selectedPortId),
-        null,
-        occupiedSegments
-      );
-      const previewPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      previewPath.setAttribute("d", polylineToPath(previewRoute.points));
-      previewPath.setAttribute("class", "wire wire-preview");
-      wireLayer.appendChild(previewPath);
-    }
+function renderPreviewConnection() {
+  ensureWireLayers();
+
+  if (!state.selectedPortId || !state.previewPoint) {
+    previewWirePath.removeAttribute("d");
+    previewWirePath.style.display = "none";
+    return;
   }
+
+  const start = portCenter(state.selectedPortId);
+  if (!start) {
+    previewWirePath.removeAttribute("d");
+    previewWirePath.style.display = "none";
+    return;
+  }
+
+  const previewRoute = buildOrthogonalRoute(
+    start,
+    state.previewPoint,
+    portMeta(state.selectedPortId),
+    null,
+    state.renderCache.occupiedSegments
+  );
+  previewWirePath.setAttribute("d", polylineToPath(previewRoute.points));
+  previewWirePath.style.display = "";
+}
+
+function schedulePreviewRender() {
+  if (state.previewFrame) {
+    return;
+  }
+
+  state.previewFrame = requestAnimationFrame(() => {
+    state.previewFrame = null;
+    renderPreviewConnection();
+  });
+}
+
+function drawConnections() {
+  renderConnectionLayer();
+  renderPreviewConnection();
 }
 
 function validateAndRender() {
@@ -1498,7 +1552,7 @@ function updatePreviewPoint(event) {
     x: event.clientX - stageRect.left,
     y: event.clientY - stageRect.top,
   };
-  drawConnections();
+  schedulePreviewRender();
 }
 
 newSetupButton.addEventListener("click", createChallenge);
@@ -1515,7 +1569,7 @@ stage.addEventListener("mouseleave", () => {
     return;
   }
   state.previewPoint = portCenter(state.selectedPortId);
-  drawConnections();
+  schedulePreviewRender();
 });
 
 stage.addEventListener("click", (event) => {
