@@ -132,7 +132,7 @@ const TUTORIAL_STEPS = [
     success: "Bene. Ora hai due speaker collegati direttamente ai due MAIN OUT del mixer.",
     redirect: null,
     matches(normalized) {
-      const directState = getTutorialDirectSpeakerState();
+      const directState = getTutorialDirectSpeakerState(state.connections.slice(0, -1));
       const remainingMainOut = directState.availableMainOuts[0];
       const remainingSpeaker = directState.availableSpeakers[0];
 
@@ -320,11 +320,11 @@ function setTutorialFeedback(text = "", tone = "info") {
   state.tutorial.feedbackTone = tone;
 }
 
-function getTutorialDirectSpeakerState() {
+function getTutorialDirectSpeakerState(connections = state.connections) {
   const usedMainOuts = [];
   const directSpeakers = [];
 
-  state.connections.forEach((connection) => {
+  connections.forEach((connection) => {
     const normalized = normalizeConnection(connection);
     if (
       !normalized ||
