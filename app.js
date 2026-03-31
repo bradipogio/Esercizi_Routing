@@ -6,8 +6,10 @@ const stageScroll = document.querySelector(".stage-scroll");
 const challengeSummary = document.getElementById("challenge-summary");
 const statusBox = document.getElementById("status-box");
 const connectionList = document.getElementById("connection-list");
+const tutorialCard = document.getElementById("tutorial-card");
 const newSetupButton = document.getElementById("new-setup");
 const resetWiringButton = document.getElementById("reset-wiring");
+const startTutorialButton = document.getElementById("start-tutorial");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const MIXER_IMAGE_SIZE = {
@@ -21,6 +23,116 @@ const DEVICE_SIZES = {
   speaker: { width: 188, height: 132 },
   mixer: { width: 860, height: 307 },
 };
+
+const TUTORIAL_LAYOUT = {
+  mixer: { x: 420, y: 292 },
+  mic: [{ x: 92, y: 120 }],
+  tablet: [{ x: 1410, y: 118 }],
+  speaker: [
+    { x: 122, y: 754 },
+    { x: 1390, y: 754 },
+  ],
+};
+
+const TUTORIAL_XLR_PORTS = [
+  "mixer-mic-1-xlr",
+  "mixer-mic-2-xlr",
+  "mixer-mic-3-xlr",
+  "mixer-mic-4-xlr",
+];
+
+const TUTORIAL_STEREO_PORTS = [
+  "mixer-stereo-5-6-l",
+  "mixer-stereo-5-6-r",
+  "mixer-stereo-7-8-l",
+  "mixer-stereo-7-8-r",
+  "mixer-stereo-9-10-l",
+  "mixer-stereo-9-10-r",
+  "mixer-stereo-11-12-l",
+  "mixer-stereo-11-12-r",
+];
+
+const TUTORIAL_STEPS = [
+  {
+    title: "Microfono nel mixer",
+    reason:
+      "Il microfono esce con un segnale microfonico debole, quindi deve entrare in un ingresso XLR MIC del mixer, che serve a riceverlo e preamplificarlo correttamente.",
+    instruction:
+      "Collega OUT di Microfono 1 a uno degli ingressi XLR MIC 1-4 del mixer.",
+    devices: ["mic-1", "mixer-1"],
+    ports: ["mic-1-out", ...TUTORIAL_XLR_PORTS],
+    success: "Perfetto. Il microfono ora entra nel punto giusto del mixer.",
+    redirect:
+      "In questo step lavora solo sul microfono: parti da OUT di Microfono 1 e arriva a un ingresso XLR MIC del mixer.",
+    matches(normalized) {
+      return (
+        normalized &&
+        normalized.fromPort.id === "mic-1-out" &&
+        normalized.toPort.deviceId === "mixer-1" &&
+        normalized.toPort.jackType === "mic_xlr"
+      );
+    },
+  },
+  {
+    title: "Tablet su una coppia stereo",
+    reason:
+      "Il tablet invia un segnale line level, quindi non entra negli XLR microfonici: va su una coppia stereo del mixer, pensata proprio per sorgenti come musica e basi.",
+    instruction:
+      "Collega OUT di Tablet 1 a una delle coppie stereo del mixer: 5/6, 7/8, 9/10 o 11/12.",
+    devices: ["tablet-1", "mixer-1"],
+    ports: ["tablet-1-out", ...TUTORIAL_STEREO_PORTS],
+    success: "Bene. Il tablet è su un ingresso line/stereo del mixer, non su un ingresso microfonico.",
+    redirect:
+      "Adesso concentrati sul tablet: usa OUT di Tablet 1 e una delle coppie stereo del mixer.",
+    matches(normalized) {
+      return (
+        normalized &&
+        normalized.fromPort.id === "tablet-1-out" &&
+        normalized.toPort.deviceId === "mixer-1" &&
+        normalized.toPort.jackType === "stereo_line"
+      );
+    },
+  },
+  {
+    title: "Prima cassa dal MAIN OUT",
+    reason:
+      "Le casse devono ricevere il mix finale del mixer, quindi la prima connessione parte dai MAIN OUT. Da lì fai uscire il segnale completo verso la prima cassa.",
+    instruction:
+      "Collega MAIN OUT L oppure MAIN OUT R del mixer a uno degli ingressi IN di Speaker 1.",
+    devices: ["mixer-1", "speaker-1"],
+    ports: ["mixer-main-l", "mixer-main-r", "speaker-1-in-1", "speaker-1-in-2"],
+    success: "Giusto. La prima cassa riceve il segnale direttamente dal mixer.",
+    redirect:
+      "In questo step usa solo MAIN OUT del mixer e uno degli ingressi di Speaker 1.",
+    matches(normalized) {
+      return (
+        normalized &&
+        normalized.fromPort.deviceId === "mixer-1" &&
+        normalized.fromPort.jackType === "main_out" &&
+        normalized.toPort.deviceId === "speaker-1"
+      );
+    },
+  },
+  {
+    title: "Seconda cassa in cascata",
+    reason:
+      "Quando hai più speaker puoi proseguire in catena: l'uscita della prima cassa porta avanti il segnale verso la successiva senza tornare al mixer per ogni collegamento.",
+    instruction:
+      "Collega OUT di Speaker 1 a uno degli ingressi IN di Speaker 2.",
+    devices: ["speaker-1", "speaker-2"],
+    ports: ["speaker-1-out", "speaker-2-in-1", "speaker-2-in-2"],
+    success: "Perfetto. Hai completato il flusso base: microfono, tablet e speaker.",
+    redirect:
+      "Ora lavora solo sulle casse: parti da OUT di Speaker 1 e arriva a un ingresso di Speaker 2.",
+    matches(normalized) {
+      return (
+        normalized &&
+        normalized.fromPort.id === "speaker-1-out" &&
+        normalized.toPort.deviceId === "speaker-2"
+      );
+    },
+  },
+];
 
 const state = {
   challenge: null,
@@ -40,10 +152,17 @@ const state = {
   },
   previewFrame: null,
   stageScale: 1,
+  tutorial: {
+    active: false,
+    stepIndex: 0,
+    feedback: "",
+    feedbackTone: "info",
+  },
 };
 
 let connectionWireGroup = null;
 let previewWirePath = null;
+let tutorialReturnTimer = null;
 
 const STAGE_MARGIN = 26;
 const ROUTE_PADDING = 34;
@@ -155,6 +274,174 @@ function buildMixerPorts() {
   ];
 }
 
+function tutorialStep() {
+  return TUTORIAL_STEPS[state.tutorial.stepIndex] || null;
+}
+
+function setTutorialFeedback(text = "", tone = "info") {
+  state.tutorial.feedback = text;
+  state.tutorial.feedbackTone = tone;
+}
+
+function clearTutorialReturnTimer() {
+  if (!tutorialReturnTimer) {
+    return;
+  }
+
+  window.clearTimeout(tutorialReturnTimer);
+  tutorialReturnTimer = null;
+}
+
+function startTutorial() {
+  clearTutorialReturnTimer();
+  state.tutorial.active = true;
+  state.tutorial.stepIndex = 0;
+  setTutorialFeedback("", "info");
+  state.challenge = {
+    micCount: 1,
+    tabletCount: 1,
+    speakerCount: 2,
+  };
+  state.connections = [];
+  state.selectedPortId = null;
+  state.previewPoint = null;
+  buildDevices();
+  validateAndRender();
+}
+
+function finishTutorial() {
+  clearTutorialReturnTimer();
+  state.tutorial.active = false;
+  state.tutorial.stepIndex = 0;
+  setTutorialFeedback("", "info");
+  state.connections = [];
+  state.selectedPortId = null;
+  state.previewPoint = null;
+  createChallenge();
+}
+
+function tutorialLockedPorts() {
+  return new Set(
+    state.tutorial.active
+      ? state.connections.flatMap((connection) => [connection.first, connection.second])
+      : []
+  );
+}
+
+function tutorialDevicePosition(type, index) {
+  if (!state.tutorial.active) {
+    return null;
+  }
+
+  if (type === "mixer") {
+    return TUTORIAL_LAYOUT.mixer;
+  }
+
+  if (type === "mic") {
+    return TUTORIAL_LAYOUT.mic[index] || null;
+  }
+
+  if (type === "tablet") {
+    return TUTORIAL_LAYOUT.tablet[index] || null;
+  }
+
+  if (type === "speaker") {
+    return TUTORIAL_LAYOUT.speaker[index] || null;
+  }
+
+  return null;
+}
+
+function tutorialPortFocus(portId) {
+  const step = tutorialStep();
+  return Boolean(state.tutorial.active && step && step.ports.includes(portId));
+}
+
+function tutorialDeviceFocus(deviceId) {
+  const step = tutorialStep();
+  return Boolean(state.tutorial.active && step && step.devices.includes(deviceId));
+}
+
+function processTutorialConnection(connection) {
+  if (!state.tutorial.active) {
+    return;
+  }
+
+  const step = tutorialStep();
+  if (!step) {
+    return;
+  }
+
+  const normalized = normalizeConnection(connection);
+  if (!step.matches(normalized)) {
+    state.connections.pop();
+    setTutorialFeedback(step.redirect, "error");
+    return;
+  }
+
+  state.tutorial.stepIndex += 1;
+  setTutorialFeedback(
+    state.tutorial.stepIndex >= TUTORIAL_STEPS.length
+      ? "Tutorial completato. Tra un attimo torni allo scenario libero."
+      : step.success,
+    "success"
+  );
+
+  if (state.tutorial.stepIndex >= TUTORIAL_STEPS.length) {
+    clearTutorialReturnTimer();
+    tutorialReturnTimer = window.setTimeout(() => {
+      if (state.tutorial.active && !tutorialStep()) {
+        finishTutorial();
+      }
+    }, 2200);
+  }
+}
+
+function renderTutorial() {
+  if (!state.tutorial.active) {
+    tutorialCard.hidden = true;
+    startTutorialButton.textContent = "Tutorial";
+    return;
+  }
+
+  startTutorialButton.textContent = "Ricomincia tutorial";
+  tutorialCard.hidden = false;
+
+  const step = tutorialStep();
+  if (!step) {
+    tutorialCard.innerHTML = `
+      <p class="tutorial-kicker">Tutorial completato</p>
+      <h2>Flusso base chiuso</h2>
+      <p class="tutorial-copy">
+        Hai collegato microfono, tablet e speaker nel modo corretto. Tra poco torni allo scenario libero, ma puoi anche uscire subito.
+      </p>
+      <div class="tutorial-feedback" data-tone="${state.tutorial.feedbackTone}">${state.tutorial.feedback}</div>
+      <div class="tutorial-actions">
+        <button id="finish-tutorial" class="button button-primary">Torna alla schermata iniziale</button>
+      </div>
+    `;
+    document.getElementById("finish-tutorial")?.addEventListener("click", finishTutorial);
+    return;
+  }
+
+  tutorialCard.innerHTML = `
+    <p class="tutorial-kicker">Tutorial ${state.tutorial.stepIndex + 1} / ${TUTORIAL_STEPS.length}</p>
+    <h2>${step.title}</h2>
+    <p class="tutorial-copy">${step.reason}</p>
+    <div class="tutorial-instruction"><strong>Adesso fai questo:</strong> ${step.instruction}</div>
+    ${
+      state.tutorial.feedback
+        ? `<div class="tutorial-feedback" data-tone="${state.tutorial.feedbackTone}">${state.tutorial.feedback}</div>`
+        : ""
+    }
+    <div class="tutorial-actions">
+      <button id="exit-tutorial" class="button button-quiet">Esci tutorial</button>
+    </div>
+  `;
+
+  document.getElementById("exit-tutorial")?.addEventListener("click", finishTutorial);
+}
+
 function createChallenge() {
   const previous = state.challenge;
   let micCount = randomInt(1, 4);
@@ -236,12 +523,14 @@ function buildDevices() {
     return { x: 20, y: 20 };
   }
 
-  const mixerPosition = takeSlot(DEVICE_SIZES.mixer, [
-    { x: 860, y: 420 },
-    { x: 860, y: 520 },
-    { x: 780, y: 470 },
-    { x: 940, y: 470 },
-  ]);
+  const mixerPosition =
+    tutorialDevicePosition("mixer", 0) ||
+    takeSlot(DEVICE_SIZES.mixer, [
+      { x: 860, y: 420 },
+      { x: 860, y: 520 },
+      { x: 780, y: 470 },
+      { x: 940, y: 470 },
+    ]);
 
   devices.push({
     id: "mixer-1",
@@ -276,7 +565,7 @@ function buildDevices() {
 
   for (let index = 0; index < micCount; index += 1) {
     const id = `mic-${index + 1}`;
-    const position = takeSlot(DEVICE_SIZES.mic, peripheralCenters);
+    const position = tutorialDevicePosition("mic", index) || takeSlot(DEVICE_SIZES.mic, peripheralCenters);
     devices.push({
       id,
       type: "mic",
@@ -298,7 +587,8 @@ function buildDevices() {
 
   for (let index = 0; index < tabletCount; index += 1) {
     const id = `tablet-${index + 1}`;
-    const position = takeSlot(DEVICE_SIZES.tablet, peripheralCenters);
+    const position =
+      tutorialDevicePosition("tablet", index) || takeSlot(DEVICE_SIZES.tablet, peripheralCenters);
     devices.push({
       id,
       type: "tablet",
@@ -320,7 +610,8 @@ function buildDevices() {
 
   for (let index = 0; index < speakerCount; index += 1) {
     const id = `speaker-${index + 1}`;
-    const position = takeSlot(DEVICE_SIZES.speaker, peripheralCenters);
+    const position =
+      tutorialDevicePosition("speaker", index) || takeSlot(DEVICE_SIZES.speaker, peripheralCenters);
     devices.push({
       id,
       type: "speaker",
@@ -464,6 +755,9 @@ function describeConnection(connection) {
 }
 
 function removeConnectionByIndex(index) {
+  if (state.tutorial.active) {
+    return;
+  }
   state.connections.splice(index, 1);
   validateAndRender();
 }
@@ -471,6 +765,23 @@ function removeConnectionByIndex(index) {
 function handlePortClick(portId) {
   if (!portMeta(portId)) {
     return;
+  }
+
+  if (state.tutorial.active) {
+    const step = tutorialStep();
+    const lockedPorts = tutorialLockedPorts();
+
+    if (lockedPorts.has(portId)) {
+      setTutorialFeedback("Quel collegamento è già confermato nel tutorial.", "info");
+      renderTutorial();
+      return;
+    }
+
+    if (step && !step.ports.includes(portId)) {
+      setTutorialFeedback(step.redirect, "error");
+      renderTutorial();
+      return;
+    }
   }
 
   if (!state.selectedPortId) {
@@ -501,6 +812,10 @@ function handlePortClick(portId) {
     first: state.selectedPortId,
     second: portId,
   });
+
+  if (state.tutorial.active) {
+    processTutorialConnection(state.connections[state.connections.length - 1]);
+  }
 
   state.selectedPortId = null;
   state.previewPoint = null;
@@ -684,6 +999,23 @@ function validateConnections() {
 }
 
 function buildStatusMarkup(validation) {
+  if (state.tutorial.active) {
+    const step = tutorialStep();
+    return step
+      ? {
+          state: "idle",
+          title: "Tutorial in corso",
+          text: "Segui il pannello guida sopra il palco: ti indica cosa collegare adesso e perché.",
+          showNext: false,
+        }
+      : {
+          state: "success",
+          title: "Tutorial completato",
+          text: "Hai chiuso il percorso base. Usa il pulsante del tutorial per tornare allo scenario libero.",
+          showNext: false,
+        };
+  }
+
   if (validation.solved) {
     return {
       state: "success",
@@ -764,11 +1096,19 @@ function renderConnectionList() {
       (connection, index) => `
         <div class="connection-item">
           <span>${describeConnection(connection)}</span>
-          <button class="chip-remove" data-remove-index="${index}">Rimuovi</button>
+          ${
+            state.tutorial.active
+              ? ""
+              : `<button class="chip-remove" data-remove-index="${index}">Rimuovi</button>`
+          }
         </div>
       `
     )
     .join("");
+
+  if (state.tutorial.active) {
+    return;
+  }
 
   connectionList.querySelectorAll("[data-remove-index]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -779,10 +1119,14 @@ function renderConnectionList() {
 
 function renderDevices() {
   deviceLayer.innerHTML = "";
+  stage.classList.toggle("tutorial-active", state.tutorial.active && Boolean(tutorialStep()));
 
   state.devices.forEach((device) => {
     const element = document.createElement("article");
     element.className = `device device-${device.type}`;
+    if (tutorialDeviceFocus(device.id)) {
+      element.classList.add("tutorial-device-focus");
+    }
     element.style.left = `${device.x}px`;
     element.style.top = `${device.y}px`;
     element.style.width = `${device.width}px`;
@@ -817,6 +1161,9 @@ function renderDevices() {
       if (state.selectedPortId === port.id) {
         portButton.classList.add("selected");
       }
+      if (tutorialPortFocus(port.id)) {
+        portButton.classList.add("tutorial-port-focus");
+      }
 
       portButton.dataset.portId = port.id;
       portButton.dataset.role = port.role;
@@ -833,6 +1180,9 @@ function renderDevices() {
       if (device.type !== "mixer") {
         const label = document.createElement("span");
         label.className = `port-label ${port.role === "in" ? "port-label-left" : "port-label-right"}`;
+        if (tutorialPortFocus(port.id)) {
+          label.classList.add("tutorial-port-focus");
+        }
         label.textContent = port.label;
         label.style.top = `${port.y}px`;
         element.appendChild(label);
@@ -1527,15 +1877,17 @@ function renderConnectionLayer() {
       connectionWireGroup.appendChild(flowPath);
     }
 
-    const hitboxPath = document.createElementNS(SVG_NS, "path");
-    hitboxPath.setAttribute("d", d);
-    hitboxPath.setAttribute("class", "wire-hitbox");
-    hitboxPath.dataset.connectionIndex = String(index);
-    hitboxPath.addEventListener("click", (event) => {
-      event.stopPropagation();
-      removeConnectionByIndex(Number(hitboxPath.dataset.connectionIndex));
-    });
-    connectionWireGroup.appendChild(hitboxPath);
+    if (!state.tutorial.active) {
+      const hitboxPath = document.createElementNS(SVG_NS, "path");
+      hitboxPath.setAttribute("d", d);
+      hitboxPath.setAttribute("class", "wire-hitbox");
+      hitboxPath.dataset.connectionIndex = String(index);
+      hitboxPath.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeConnectionByIndex(Number(hitboxPath.dataset.connectionIndex));
+      });
+      connectionWireGroup.appendChild(hitboxPath);
+    }
   });
 }
 
@@ -1589,6 +1941,7 @@ function drawConnections() {
 function validateAndRender() {
   state.validation = validateConnections();
   renderSummary();
+  renderTutorial();
   renderStatus();
   renderConnectionList();
   renderDevices();
@@ -1610,8 +1963,19 @@ function updatePreviewPoint(event) {
   schedulePreviewRender();
 }
 
-newSetupButton.addEventListener("click", createChallenge);
+startTutorialButton.addEventListener("click", startTutorial);
+newSetupButton.addEventListener("click", () => {
+  if (state.tutorial.active) {
+    finishTutorial();
+    return;
+  }
+  createChallenge();
+});
 resetWiringButton.addEventListener("click", () => {
+  if (state.tutorial.active) {
+    startTutorial();
+    return;
+  }
   state.connections = [];
   state.selectedPortId = null;
   state.previewPoint = null;
