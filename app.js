@@ -813,16 +813,19 @@ function renderDevices() {
 }
 
 function portCenter(portId) {
-  const button = deviceLayer.querySelector(`[data-port-id="${portId}"]`);
-  if (!button) {
+  const port = portMeta(portId);
+  if (!port) {
     return null;
   }
 
-  const stageRect = stage.getBoundingClientRect();
-  const buttonRect = button.getBoundingClientRect();
+  const device = getDevice(port.deviceId);
+  if (!device) {
+    return null;
+  }
+
   return {
-    x: buttonRect.left - stageRect.left + buttonRect.width / 2,
-    y: buttonRect.top - stageRect.top + buttonRect.height / 2,
+    x: device.x + port.x,
+    y: device.y + port.y,
   };
 }
 
@@ -1252,7 +1255,12 @@ function collectCorridors(axis, startPoint, endPoint, obstacles, occupiedSegment
   return [...new Set(values.map((value) => clampToStage(value, axis)))];
 }
 
-function buildOrthogonalRoute(from, to, fromPort, toPort, occupiedSegments = []) {
+function buildOrthogonalRoute(from, to, fromPort, toPort, options = {}) {
+  const {
+    occupiedSegments = [],
+    includeWireLanes = true,
+    includeCompoundDetours = true,
+  } = options;
   const excludedDeviceIds = new Set();
   const excludedPortIds = new Set();
   if (fromPort) {
@@ -1271,8 +1279,9 @@ function buildOrthogonalRoute(from, to, fromPort, toPort, occupiedSegments = [])
   const startLead = resolvePortEscape(fromPort, from);
   const endLead = resolvePortEscape(toPort, to);
   const candidates = [];
-  const xCorridors = collectCorridors("x", startLead, endLead, obstacles, occupiedSegments);
-  const yCorridors = collectCorridors("y", startLead, endLead, obstacles, occupiedSegments);
+  const routeOccupiedSegments = includeWireLanes ? occupiedSegments : [];
+  const xCorridors = collectCorridors("x", startLead, endLead, obstacles, routeOccupiedSegments);
+  const yCorridors = collectCorridors("y", startLead, endLead, obstacles, routeOccupiedSegments);
 
   const pushCandidate = (points) => {
     const simplified = simplifyPolyline(points);
@@ -1311,35 +1320,37 @@ function buildOrthogonalRoute(from, to, fromPort, toPort, occupiedSegments = [])
     ]);
   });
 
-  xCorridors.forEach((corridorX) => {
-    yCorridors.forEach((corridorY) => {
-      pushCandidate([
-        from,
-        startLead,
-        { x: startLead.x, y: corridorY },
-        { x: corridorX, y: corridorY },
-        { x: corridorX, y: endLead.y },
-        endLead,
-        to,
-      ]);
+  if (includeCompoundDetours) {
+    xCorridors.forEach((corridorX) => {
+      yCorridors.forEach((corridorY) => {
+        pushCandidate([
+          from,
+          startLead,
+          { x: startLead.x, y: corridorY },
+          { x: corridorX, y: corridorY },
+          { x: corridorX, y: endLead.y },
+          endLead,
+          to,
+        ]);
 
-      pushCandidate([
-        from,
-        startLead,
-        { x: corridorX, y: startLead.y },
-        { x: corridorX, y: corridorY },
-        { x: endLead.x, y: corridorY },
-        endLead,
-        to,
-      ]);
+        pushCandidate([
+          from,
+          startLead,
+          { x: corridorX, y: startLead.y },
+          { x: corridorX, y: corridorY },
+          { x: endLead.x, y: corridorY },
+          endLead,
+          to,
+        ]);
+      });
     });
-  });
+  }
 
   let bestPoints = candidates[0] || simplifyPolyline([from, to]);
   let bestScore = Number.POSITIVE_INFINITY;
 
   candidates.forEach((candidate) => {
-    const metrics = routeMetrics(candidate, obstacles, occupiedSegments);
+    const metrics = routeMetrics(candidate, obstacles, routeOccupiedSegments);
     const score =
       metrics.overlap * 1300 +
       metrics.wireOverlap * 2400 +
@@ -1399,7 +1410,14 @@ function collectRouteEntries() {
     const toPort = valid ? normalized.toPort : portMeta(connection.second);
     const from = portCenter(valid ? normalized.fromPort.id : connection.first);
     const to = portCenter(valid ? normalized.toPort.id : connection.second);
-    const route = from && to ? buildOrthogonalRoute(from, to, fromPort, toPort, occupiedSegments) : null;
+    const route =
+      from && to
+        ? buildOrthogonalRoute(from, to, fromPort, toPort, {
+            occupiedSegments,
+            includeWireLanes: true,
+            includeCompoundDetours: true,
+          })
+        : null;
 
     routeEntries.push({
       connection,
@@ -1511,7 +1529,11 @@ function renderPreviewConnection() {
     state.previewPoint,
     portMeta(state.selectedPortId),
     null,
-    state.renderCache.occupiedSegments
+    {
+      occupiedSegments: state.renderCache.occupiedSegments,
+      includeWireLanes: false,
+      includeCompoundDetours: false,
+    }
   );
   previewWirePath.setAttribute("d", polylineToPath(previewRoute.points));
   previewWirePath.style.display = "";
