@@ -37,6 +37,18 @@ const TUTORIAL_LAYOUT = {
   ],
 };
 
+const TUTORIAL_LAYOUT_PHONE = {
+  stage: { width: 940, height: 1320 },
+  mixer: { x: 40, y: 360 },
+  mic: [{ x: 74, y: 120 }],
+  tablet: [{ x: 668, y: 120 }],
+  speaker: [
+    { x: 68, y: 1020 },
+    { x: 376, y: 1020 },
+    { x: 684, y: 1020 },
+  ],
+};
+
 const TUTORIAL_XLR_PORTS = [
   "mixer-mic-1-xlr",
   "mixer-mic-2-xlr",
@@ -428,20 +440,22 @@ function tutorialDevicePosition(type, index) {
     return null;
   }
 
+  const layout = isPhoneViewport() ? TUTORIAL_LAYOUT_PHONE : TUTORIAL_LAYOUT;
+
   if (type === "mixer") {
-    return TUTORIAL_LAYOUT.mixer;
+    return layout.mixer;
   }
 
   if (type === "mic") {
-    return TUTORIAL_LAYOUT.mic[index] || null;
+    return layout.mic[index] || null;
   }
 
   if (type === "tablet") {
-    return TUTORIAL_LAYOUT.tablet[index] || null;
+    return layout.tablet[index] || null;
   }
 
   if (type === "speaker") {
-    return TUTORIAL_LAYOUT.speaker[index] || null;
+    return layout.speaker[index] || null;
   }
 
   return null;
@@ -602,8 +616,9 @@ function createChallenge() {
 
 function buildDevices() {
   const { micCount, tabletCount, speakerCount } = state.challenge;
-  const stageWidth = 1700;
-  const stageHeight = 980;
+  const tutorialPhoneStage = state.tutorial.active && isPhoneViewport() ? TUTORIAL_LAYOUT_PHONE.stage : null;
+  const stageWidth = tutorialPhoneStage ? tutorialPhoneStage.width : 1700;
+  const stageHeight = tutorialPhoneStage ? tutorialPhoneStage.height : 980;
 
   state.stageSize = {
     width: stageWidth,
@@ -784,7 +799,7 @@ function computeStageScale() {
     return 1;
   }
 
-  const minScale = isPhoneViewport() ? 0.58 : 0.74;
+  const minScale = isPhoneViewport() ? (state.tutorial.active ? 0.36 : 0.58) : 0.74;
   const maxScale = isPhoneViewport() ? 0.82 : 1;
   return clamp(availableWidth / state.stageSize.width, minScale, maxScale);
 }
